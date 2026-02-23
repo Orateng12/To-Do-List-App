@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TaskMaster v2.0 - Enhanced To-Do List Application
 
 A **powerful, feature-rich** to-do list application with a modern modular architecture, offline support, and advanced productivity features.
