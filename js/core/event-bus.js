@@ -203,7 +203,10 @@ export const AppEvents = {
     TASK_DELETED: 'task:deleted',
     TASK_COMPLETED: 'task:completed',
     TASK_TOGGLED: 'task:toggled',
+    TASK_UNBLOCKED: 'task:unblocked',
     TASKS_LOADED: 'tasks:loaded',
+    TASK_REORDERED: 'task:reordered',
+    TASK_DRAG_START: 'task:drag:start',
 
     // Subtask events
     SUBTASK_ADDED: 'subtask:added',
@@ -229,10 +232,37 @@ export const AppEvents = {
     STREAK_FREEZE_EARNED: 'streak:freeze_earned',
     STREAKS_RESET: 'streaks:reset',
 
+    // Dependency events
+    DEPENDENCY_ADDED: 'dependency:added',
+    DEPENDENCY_REMOVED: 'dependency:removed',
+
+    // Voice events
+    VOICE_LISTENING_START: 'voice:listening:start',
+    VOICE_LISTENING_END: 'voice:listening:end',
+    VOICE_TRANSCRIPT: 'voice:transcript',
+    VOICE_ERROR: 'voice:error',
+    VOICE_SEARCH: 'voice:search',
+
+    // Focus mode events
+    FOCUS_SESSION_START: 'focus:session:start',
+    FOCUS_SESSION_PAUSE: 'focus:session:pause',
+    FOCUS_SESSION_RESUME: 'focus:session:resume',
+    FOCUS_SESSION_STOP: 'focus:session:stop',
+    FOCUS_SESSION_COMPLETE: 'focus:session:complete',
+    FOCUS_BREAK_START: 'focus:break:start',
+    FOCUS_BREAK_COMPLETE: 'focus:break:complete',
+    FOCUS_TIMER_TICK: 'focus:timer:tick',
+    FOCUS_SESSION_RECORDED: 'focus:session:recorded',
+    FOCUS_CONFIG_UPDATED: 'focus:config:updated',
+
+    // Suggestions events
+    SUGGESTION_LEARNED: 'suggestion:learned',
+
     // UI events
     UI_RENDER: 'ui:render',
     UI_THEME_CHANGED: 'ui:theme:changed',
     UI_NOTIFICATION: 'ui:notification',
+    VIRTUAL_SCROLL_UPDATE: 'virtual:scroll:update',
 
     // Data events
     DATA_SAVED: 'data:saved',

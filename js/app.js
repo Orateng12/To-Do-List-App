@@ -35,6 +35,10 @@ import { SwipeActionsManager } from './features/swipe-actions.js';
 import { DragDropManager } from './features/drag-drop.js';
 import { NaturalLanguageParser } from './features/natural-language-parser.js';
 import { AnalyticsEngine, DashboardRenderer } from './features/analytics.js';
+import { SmartSuggestionsEngine } from './features/smart-suggestions.js';
+import { DependencyManager } from './features/dependencies.js';
+import { VoiceInputManager } from './features/voice-input.js';
+import { FocusModeManager } from './features/focus-mode.js';
 
 // ============================================
 // CONFIGURATION
@@ -987,6 +991,122 @@ function initNaturalLanguageHandlers(naturalLanguageParser) {
 }
 
 // ============================================
+// VOICE INPUT HANDLERS
+// ============================================
+function initVoiceHandlers(voiceInputManager) {
+    const voiceButton = document.getElementById('voiceInputBtn');
+    
+    if (voiceButton) {
+        voiceButton.addEventListener('click', async () => {
+            const isListening = await voiceInputManager.toggleListening();
+            voiceButton.classList.toggle('listening', isListening);
+            voiceButton.setAttribute('aria-pressed', isListening);
+            
+            if (isListening) {
+                ui.showToast('🎤 Listening... Speak now', 'info');
+            }
+        });
+    }
+    
+    // Handle voice search
+    eventBus.on(AppEvents.VOICE_SEARCH, (data) => {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.value = data.query;
+            searchInput.dispatchEvent(new Event('input'));
+        }
+    });
+}
+
+// ============================================
+// FOCUS MODE HANDLERS
+// ============================================
+function initFocusModeHandlers(focusModeManager) {
+    const focusButton = document.getElementById('focusModeBtn');
+    const focusModal = document.getElementById('focusModal');
+    
+    if (focusButton && focusModal) {
+        focusButton.addEventListener('click', () => {
+            focusModal.classList.add('visible');
+            updateFocusModeUI(focusModeManager);
+        });
+        
+        document.getElementById('focusClose')?.addEventListener('click', () => {
+            focusModal.classList.remove('visible');
+        });
+        
+        // Start focus session
+        document.getElementById('startFocusBtn')?.addEventListener('click', () => {
+            const taskId = document.getElementById('focusTaskSelect')?.value || null;
+            const result = focusModeManager.startFocusSession(taskId);
+            
+            if (result.success) {
+                ui.showToast('🍅 Focus session started!', 'success');
+                focusModal.classList.remove('visible');
+            }
+        });
+        
+        // Pause/Resume
+        document.getElementById('pauseFocusBtn')?.addEventListener('click', () => {
+            const state = focusModeManager.getState();
+            const result = state.isPaused 
+                ? focusModeManager.resumeSession()
+                : focusModeManager.pauseSession();
+            
+            if (result.success) {
+                updateFocusModeUI(focusModeManager);
+            }
+        });
+        
+        // Stop
+        document.getElementById('stopFocusBtn')?.addEventListener('click', () => {
+            const result = focusModeManager.stopSession();
+            if (result.success) {
+                ui.showToast('Focus session stopped', 'info');
+                updateFocusModeUI(focusModeManager);
+            }
+        });
+        
+        // Timer tick - update UI
+        eventBus.on(AppEvents.FOCUS_TIMER_TICK, (data) => {
+            const timerDisplay = document.getElementById('focusTimerDisplay');
+            if (timerDisplay) {
+                timerDisplay.textContent = data.timeRemaining;
+            }
+        });
+    }
+}
+
+// Update focus mode UI
+async function updateFocusModeUI(focusModeManager) {
+    const state = focusModeManager.getState();
+    const stats = focusModeManager.getStats();
+    
+    // Update timer display
+    const timerDisplay = document.getElementById('focusTimerDisplay');
+    if (timerDisplay) {
+        timerDisplay.textContent = state.formattedTime || '25:00';
+    }
+    
+    // Update mode indicator
+    const modeIndicator = document.getElementById('focusModeIndicator');
+    if (modeIndicator) {
+        const modeIcons = { work: '🍅', shortBreak: '☕', longBreak: '🏖️', idle: '⏸️' };
+        modeIndicator.textContent = `${modeIcons[state.mode] || '⏸️'} ${state.mode}`;
+    }
+    
+    // Update stats
+    const statsElement = document.getElementById('focusStats');
+    if (statsElement) {
+        statsElement.innerHTML = `
+            <div>Today: ${stats.todaySessions} sessions (${stats.todayFocusTime})</div>
+            <div>Week: ${stats.weekSessions} sessions (${stats.weekFocusTime})</div>
+            <div>Streak: ${stats.currentStreak} days 🔥</div>
+        `;
+    }
+}
+
+// ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
 async function registerServiceWorker() {
@@ -1028,24 +1148,36 @@ async function registerServiceWorker() {
 // INITIALIZATION
 // ============================================
 async function init() {
-    console.log('🚀 TaskMaster Enhanced UI/UX initializing...');
+    console.log('🚀 TaskMaster Phase 3 - AI & Intelligent Features initializing...');
 
     // Initialize UI with enhanced components
     ui.initElements();
     ui.bindPriorityFeedback();
     
-    // Initialize feature managers
+    // Initialize Phase 1 feature managers
     const subtasksManager = new SubtasksManager(taskRepository);
     const recurringTasksManager = new RecurringTasksManager(taskRepository);
     const notificationsManager = new NotificationsManager(taskRepository);
     const streaksManager = new StreaksManager(taskRepository);
+    
+    // Initialize Phase 2 feature managers
     const swipeActionsManager = new SwipeActionsManager(taskRepository, ui);
     const dragDropManager = new DragDropManager(taskRepository, ui);
     const naturalLanguageParser = new NaturalLanguageParser();
     const analyticsEngine = new AnalyticsEngine(taskRepository);
     
-    // Initialize streaks
+    // Initialize Phase 3 feature managers
+    const smartSuggestionsEngine = new SmartSuggestionsEngine(taskRepository, analyticsEngine);
+    const dependencyManager = new DependencyManager(taskRepository);
+    const voiceInputManager = new VoiceInputManager(taskRepository, ui);
+    const focusModeManager = new FocusModeManager(taskRepository);
+    
+    // Initialize streaks and dependencies
     await streaksManager.init();
+    await dependencyManager.init();
+    
+    // Initialize focus mode
+    focusModeManager.init();
     
     // Initialize inline edit manager
     const inlineEditManager = new InlineEditManager(taskRepository, ui);
@@ -1068,13 +1200,15 @@ async function init() {
     // Initialize event listeners
     initEventListeners();
     
-    // Initialize feature handlers
+    // Initialize all feature handlers
     initSubtaskHandlers(subtasksManager);
     initRecurrenceHandlers(recurringTasksManager);
     initNotificationHandlers(notificationsManager);
     initSwipeHandlers(swipeActionsManager);
     initDragDropHandlers(dragDropManager);
     initNaturalLanguageHandlers(naturalLanguageParser);
+    initVoiceHandlers(voiceInputManager);
+    initFocusModeHandlers(focusModeManager);
     
     // Initialize streak display
     updateStreakWidget(streaksManager);
@@ -1108,9 +1242,12 @@ async function init() {
     // Emit ready event
     eventBus.emit(AppEvents.APP_READY, { taskCount: tasks.length });
 
-    console.log('✅ TaskMaster Enhanced ready!');
+    console.log('✅ TaskMaster Phase 3 ready!');
     console.log('📊 Stats:', analyticsService.getStats());
     console.log('🎨 Theme:', ui.themeManager.getCurrentTheme());
+    console.log('🧠 AI Suggestions:', smartSuggestionsEngine ? 'Enabled' : 'Disabled');
+    console.log('🎤 Voice Input:', voiceInputManager.isSupported() ? 'Supported' : 'Not supported');
+    console.log('🍅 Focus Mode:', 'Ready');
     
     // Expose managers for debugging
     window.TaskMaster = {
@@ -1122,7 +1259,11 @@ async function init() {
         swipeActionsManager,
         dragDropManager,
         naturalLanguageParser,
-        analyticsEngine
+        analyticsEngine,
+        smartSuggestionsEngine,
+        dependencyManager,
+        voiceInputManager,
+        focusModeManager
     };
 }
 
