@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskMaster - To-Do List App</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Issue 8 Fix: Inline theme script to prevent flash -->
+    <script>
+        (function() {
+            const saved = localStorage.getItem('taskmaster-theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = saved || (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+</head>
+<body>
+    <!-- Issue 8 Fix: Theme Toggle -->
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle light/dark theme">
+        <span class="theme-icon" id="themeIcon">🌙</span>
+    </button>
+
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+        <button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation">
+            <span class="hamburger"></span>
+        </button>
+        <h1>TaskMaster</h1>
+        <!-- Streak Widget -->
+        <div class="streak-widget" id="streakWidget" title="Your streak">
+            <span class="streak-icon">🔥</span>
+            <span class="streak-count" id="streakCount">0</span>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation (Desktop) -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>📋 TaskMaster</h2>
+                <button class="close-sidebar" id="closeSidebar" aria-label="Close navigation">&times;</button>
+            </div>
+
+            <ul class="nav-list">
+                <li>
+                    <a href="#" class="nav-item active" data-filter="all">
+                        <span class="nav-icon">📋</span>
+                        <span>All Tasks</span>
+                        <span class="nav-count" id="countAll">0</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-filter="active">
+                        <span class="nav-icon">⏳</span>
+                        <span>Active</span>
+                        <span class="nav-count" id="countActive">0</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-item" data-filter="completed">
+                        <span class="nav-icon">✅</span>
+                        <span>Completed</span>
+                        <span class="nav-count" id="countCompleted">0</span>
+                    </a>
+                </li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <p class="stats-text">
+                    <span id="totalTasks">0</span> tasks total
+                </p>
+            </div>
+        </nav>
+
+        <!-- Sidebar Overlay -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Issue 1 Fix: Search Bar (kept as it's not redundant) -->
+            <section class="search-section">
+                <div class="search-container">
+                    <span class="search-icon">🔍</span>
+                    <input
+                        type="text"
+                        id="searchInput"
+                        class="search-input"
+                        placeholder="Search tasks..."
+                        autocomplete="off"
+                    >
+                    <button class="search-clear" id="searchClear" title="Clear search" aria-label="Clear search">
+                        &times;
+                    </button>
+                </div>
+            </section>
+
+            <!-- Issue 1 Fix: Filter Bar (hidden on desktop, enhanced on mobile) -->
+            <section class="filter-section">
+                <div class="filter-tabs">
+                    <button class="filter-tab active" data-filter="all">All</button>
+                    <button class="filter-tab" data-filter="active">Active</button>
+                    <button class="filter-tab" data-filter="completed">Completed</button>
+                </div>
+                <div class="filter-actions">
+                    <span class="task-count-display" id="taskCountDisplay"></span>
+                    <button class="btn-clear" id="clearCompleted" title="Clear completed tasks">
+                        Clear Completed
+                    </button>
+                </div>
+            </section>
+
+            <!-- Task Input -->
+            <section class="input-section">
+                <form class="task-form" id="taskForm">
+                    <div class="form-row">
+                        <input
+                            type="text"
+                            id="taskInput"
+                            class="task-input"
+                            placeholder="What needs to be done?"
+                            autocomplete="off"
+                            required
+                        >
+                        <button type="submit" class="btn-add" aria-label="Add task">
+                            <span>+</span>
+                        </button>
+                    </div>
+
+                    <!-- Issue 2 Fix: Options always visible for better discoverability -->
+                    <div class="form-options" id="formOptions">
+                        <div class="option-group">
+                            <label for="prioritySelect" class="option-label">Priority</label>
+                            <select id="prioritySelect" class="priority-select">
+                                <option value="" disabled selected>Select priority</option>
+                                <option value="low">🟢 Low</option>
+                                <option value="medium">🟡 Medium</option>
+                                <option value="high">🔴 High</option>
+                            </select>
+                        </div>
+                        <div class="option-group">
+                            <label for="dueDateInput" class="option-label">Due Date</label>
+                            <input type="date" id="dueDateInput" class="due-date-input">
+                        </div>
+                        <div class="option-group">
+                            <label for="recurrenceSelect" class="option-label">Repeat</label>
+                            <select id="recurrenceSelect" class="recurrence-select">
+                                <option value="none">No repeat</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="yearly">Yearly</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Notifications Toggle -->
+                    <div class="form-notifications">
+                        <label class="notification-toggle">
+                            <input type="checkbox" id="notificationsToggle" checked>
+                            <span class="toggle-label">🔔 Remind me</span>
+                        </label>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Tasks List -->
+            <section class="tasks-section">
+                <div class="tasks-container" id="tasksContainer"></div>
+
+                <!-- Issue 5 Fix: Enhanced Empty State with contextual actions -->
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">📝</div>
+                    <h3 id="emptyStateTitle">No tasks yet</h3>
+                    <p id="emptyStateMessage">Add your first task to get started!</p>
+                    <button class="empty-state-action" id="emptyStateAction" style="display: none;">
+                        <span>+</span>
+                        <span id="emptyStateActionText">Add Task</span>
+                    </button>
+                    <div class="empty-state-secondary" id="emptyStateSecondary" style="display: none;">
+                        <span id="emptyStateSecondaryText"></span>
+                        <button id="emptyStateSecondaryAction"></button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Issue 4 Fix: Bottom Navigation (Mobile) -->
+    <nav class="bottom-nav" id="bottomNav">
+        <a href="#" class="nav-item active" data-filter="all">
+            <span class="nav-icon">📋</span>
+            <span class="nav-label">All</span>
+        </a>
+        <a href="#" class="nav-item" data-filter="active">
+            <span class="nav-icon">⏳</span>
+            <span class="nav-label">Active</span>
+        </a>
+        <a href="#" class="nav-item" data-filter="completed">
+            <span class="nav-icon">✅</span>
+            <span class="nav-label">Completed</span>
+        </a>
+    </nav>
+
+    <!-- Edit Modal -->
+    <div class="modal" id="editModal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Task</h3>
+                <button class="modal-close" id="modalClose" aria-label="Close modal">&times;</button>
+            </div>
+            <form class="edit-form" id="editForm">
+                <input type="hidden" id="editTaskId">
+                <div class="form-group">
+                    <label for="editTaskInput">Task Description</label>
+                    <input type="text" id="editTaskInput" class="edit-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPrioritySelect">Priority</label>
+                    <select id="editPrioritySelect" class="edit-select">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="editDueDateInput">Due Date</label>
+                    <input type="date" id="editDueDateInput" class="edit-input">
+                </div>
+                <div class="form-group">
+                    <label for="editRecurrenceSelect">Recurrence</label>
+                    <select id="editRecurrenceSelect" class="edit-select">
+                        <option value="none">No repeat</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </div>
+                <!-- Subtasks Section -->
+                <div class="form-group">
+                    <label>Subtasks</label>
+                    <div class="subtasks-editor" id="subtasksEditor">
+                        <div class="subtask-input-row">
+                            <input type="text" id="newSubtaskInput" class="edit-input" placeholder="Add subtask..." maxlength="100">
+                            <button type="button" class="btn-add-subtask" id="addSubtaskBtn" title="Add subtask">+</button>
+                        </div>
+                        <div class="subtasks-list" id="subtasksList"></div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="cancelEdit">Cancel</button>
+                    <button type="submit" class="btn-save">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

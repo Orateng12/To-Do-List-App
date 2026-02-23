@@ -1,0 +1,28 @@
+{
+  "name": "taskmaster-pro",
+  "version": "3.0.0",
+  "description": "Advanced To-Do List App with TypeScript, Event Sourcing, and E2E Encryption",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "idb": "^8.0.0"
+  }
+}
