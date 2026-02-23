@@ -4,7 +4,7 @@
  * Schedule tasks into time blocks with intelligent estimation
  */
 
-import type { Task, TaskId, TimeRange } from '../types';
+import type { Task, TaskId } from '../types';
 
 export interface TimeBlock {
   id: string;
@@ -97,10 +97,10 @@ export class TimeBlockingEngine {
       description: options.description,
       startTime: options.startTime,
       endTime,
-      color: options.color || this.settings.colors.work,
+      color: options.color ?? this.settings.colors.work,
       completed: false,
       estimatedMinutes: options.duration,
-      priority: options.priority || 'medium',
+      priority: options.priority ?? 'medium',
       bufferBefore: this.settings.defaultBuffer,
       bufferAfter: this.settings.defaultBuffer
     };
@@ -156,9 +156,9 @@ export class TimeBlockingEngine {
     
     const totalScheduled = blocks.reduce((acc, block) => acc + block.estimatedMinutes, 0);
     const utilization = (totalScheduled / totalAvailable) * 100;
-    
+
     return {
-      date: date.toISOString().split('T')[0],
+      date: date.toISOString().split('T')[0]!,
       blocks,
       totalScheduled,
       totalAvailable,
@@ -255,18 +255,18 @@ export class TimeBlockingEngine {
    */
   detectConflicts(blocks: TimeBlock[]): { block1: TimeBlock; block2: TimeBlock }[] {
     const conflicts: { block1: TimeBlock; block2: TimeBlock }[] = [];
-    
+
     for (let i = 0; i < blocks.length; i++) {
       for (let j = i + 1; j < blocks.length; j++) {
-        const block1 = blocks[i];
-        const block2 = blocks[j];
-        
+        const block1 = blocks[i]!;
+        const block2 = blocks[j]!;
+
         if (this.blocksOverlap(block1, block2)) {
           conflicts.push({ block1, block2 });
         }
       }
     }
-    
+
     return conflicts;
   }
 
@@ -308,12 +308,13 @@ export class TimeBlockingEngine {
     const distribution: Record<string, number> = {};
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     days.forEach(day => { distribution[day] = 0; });
-    
+
     blocks.forEach(block => {
-      const day = days[block.startTime.getDay()];
+      const dayIndex = block.startTime.getDay();
+      const day = days[dayIndex]!;
       distribution[day] += block.estimatedMinutes;
     });
-    
+
     return distribution;
   }
 
@@ -357,17 +358,19 @@ export class TimeBlockingEngine {
 
   private sortTasksByPriority(tasks: Task[]): Task[] {
     const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-    
+
     return [...tasks].sort((a, b) => {
       // First by priority
       const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
       if (priorityDiff !== 0) return priorityDiff;
-      
+
       // Then by due date
       if (a.dueDate && b.dueDate) {
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        const aDate = new Date(a.dueDate!);
+        const bDate = new Date(b.dueDate!);
+        return aDate.getTime() - bDate.getTime();
       }
-      
+
       return 0;
     });
   }

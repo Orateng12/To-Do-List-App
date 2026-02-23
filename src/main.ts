@@ -24,7 +24,8 @@ import { pomodoroTimer } from './features/PomodoroTimer';
 import { analyticsEngine } from './features/AnalyticsEngine';
 import { timeBlockingEngine } from './features/TimeBlocking';
 import { cloudSyncEngine } from './features/CloudSync';
-import type { Task, Command, DomainEvent, AppSettings, Priority, RecurrencePattern, Analytics } from './types';
+import { uiRenderer } from './ui/UIRenderer';
+import type { Task, Command, DomainEvent, AppSettings, Priority, RecurrencePattern } from './types';
 
 // ============================================
 // APPLICATION STATE
@@ -78,6 +79,10 @@ class TaskMasterApp {
       console.log(`  - ${this.tasks.size} tasks loaded`);
       console.log(`  - Encryption: ${this.settings.encryptionEnabled ? 'enabled' : 'disabled'}`);
       console.log(`  - Theme: ${this.settings.theme}`);
+
+      // Initialize UI renderer
+      uiRenderer.init();
+      uiRenderer.refresh();
 
     } catch (error) {
       console.error('❌ Failed to initialize TaskMaster Pro:', error);
@@ -520,7 +525,7 @@ class TaskMasterApp {
   /**
    * Get analytics for tasks
    */
-  getAnalytics(): Analytics {
+  getAnalytics() {
     return analyticsEngine.calculate(this.getTasks());
   }
 

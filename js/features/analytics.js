@@ -1,770 +1,648 @@
 /**
- * Analytics Dashboard - Charts and Statistics
- * ============================================
- * Visual insights into productivity patterns
+ * Productivity Dashboard & Analytics Engine
+ * ==========================================
+ * Comprehensive task analytics and productivity insights
+ * 
+ * Features:
+ * - Completion rate tracking
+ * - Productivity trends
+ * - Time-based analytics
+ * - Priority distribution
+ * - Streak analytics
+ * - Weekly/monthly reports
+ * - Interactive charts
  */
 
-import { eventBus, EVENTS } from '../event-bus.js';
+import { eventBus, AppEvents } from '../core/event-bus.js';
 
-/**
- * Analytics Manager - Calculates and provides analytics data
- */
-export class AnalyticsManager {
-    constructor(stateManager) {
-        this.stateManager = stateManager;
-        this.worker = null;
-        this.initWorker();
-    }
-
-    /**
-     * Initialize Web Worker for background calculations
-     */
-    initWorker() {
-        if (typeof Worker !== 'undefined') {
-            this.worker = new Worker('js/workers/search-worker.js');
-            
-            this.worker.onmessage = (e) => {
-                const { type, stats } = e.data;
-                if (type === 'STATS_RESULTS') {
-                    eventBus.emit(EVENTS.ANALYTICS_UPDATED, { stats });
-                }
-            };
-        }
+class AnalyticsEngine {
+    constructor(taskRepository) {
+        this.taskRepository = taskRepository;
+        this.cache = new Map();
+        this.cacheExpiry = 5 * 60 * 1000; // 5 minutes
+        this.lastCalculated = null;
     }
 
     /**
      * Get comprehensive analytics
+     * @returns {Promise<Object>} Analytics data
      */
-    getAnalytics() {
-        const tasks = this.stateManager.getAllTasks();
-        return this.calculateAnalytics(tasks);
+    async getAnalytics() {
+        // Check cache
+        const cached = this._getCached('fullAnalytics');
+        if (cached) return cached;
+        
+        const tasks = await this.taskRepository.getAll();
+        const now = new Date();
+        
+        const analytics = {
+            overview: this._calculateOverview(tasks),
+            completion: this._calculateCompletion(tasks, now),
+            trends: this._calculateTrends(tasks, now),
+            priority: this._calculatePriorityDistribution(tasks),
+            timeAnalysis: this._calculateTimeAnalysis(tasks, now),
+            categories: this._calculateCategoryStats(tasks),
+            weeklyReport: this._generateWeeklyReport(tasks, now),
+            insights: this._generateInsights(tasks, now)
+        };
+        
+        // Cache results
+        this._setCache('fullAnalytics', analytics);
+        this.lastCalculated = now;
+        
+        return analytics;
     }
 
     /**
-     * Calculate analytics from task data
+     * Calculate overview statistics
+     * @private
      */
-    calculateAnalytics(tasks) {
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-        // Basic stats
+    _calculateOverview(tasks) {
         const total = tasks.length;
         const completed = tasks.filter(t => t.completed).length;
         const active = total - completed;
-        const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-        // Overdue tasks
         const overdue = tasks.filter(t => 
-            !t.completed && 
-            t.dueDate && 
-            new Date(t.dueDate) < today
-        );
-
-        // Due today/tomorrow
-        const dueToday = tasks.filter(t => 
-            !t.completed && 
-            t.dueDate && 
-            new Date(t.dueDate).toDateString() === today.toDateString()
-        );
-
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const dueTomorrow = tasks.filter(t => 
-            !t.completed && 
-            t.dueDate && 
-            new Date(t.dueDate).toDateString() === tomorrow.toDateString()
-        );
-
-        // Priority breakdown
-        const priorityBreakdown = {
-            high: tasks.filter(t => t.priority === 'high' && !t.completed).length,
-            medium: tasks.filter(t => t.priority === 'medium' && !t.completed).length,
-            low: tasks.filter(t => t.priority === 'low' && !t.completed).length
-        };
-
-        // Category breakdown
-        const categoryStats = {};
-        tasks.forEach(task => {
-            (task.categories || []).forEach(cat => {
-                if (!categoryStats[cat]) {
-                    categoryStats[cat] = { total: 0, completed: 0, overdue: 0 };
-                }
-                categoryStats[cat].total++;
-                if (task.completed) categoryStats[cat].completed++;
-                if (!task.completed && task.dueDate && new Date(task.dueDate) < today) {
-                    categoryStats[cat].overdue++;
-                }
-            });
-        });
-
-        // Completion trend (last 30 days)
-        const completionTrend = this.calculateCompletionTrend(tasks, 30);
-
-        // Productivity score
-        const productivityScore = this.calculateProductivityScore(tasks, completionTrend);
-
-        // Best productivity day
-        const bestDay = this.findBestProductivityDay(completionTrend);
-
-        // Average tasks per day
-        const avgTasksPerDay = this.calculateAverageTasksPerDay(tasks);
-
-        // Streak calculation
-        const currentStreak = this.calculateStreak(tasks, 'current');
-        const longestStreak = this.calculateStreak(tasks, 'longest');
-
-        return {
-            overview: {
-                total,
-                completed,
-                active,
-                completionRate,
-                overdueCount: overdue.length,
-                dueTodayCount: dueToday.length,
-                dueTomorrowCount: dueTomorrow.length
-            },
-            priority: priorityBreakdown,
-            categories: categoryStats,
-            trend: completionTrend,
-            productivity: {
-                score: productivityScore,
-                bestDay,
-                avgTasksPerDay,
-                currentStreak,
-                longestStreak
-            },
-            overdue: overdue.map(t => ({
-                id: t.id,
-                text: t.text,
-                dueDate: t.dueDate,
-                daysOverdue: this.getDaysOverdue(t.dueDate)
-            })),
-            dueSoon: [
-                ...dueToday.map(t => ({ ...t, dueLabel: 'Today' })),
-                ...dueTomorrow.map(t => ({ ...t, dueLabel: 'Tomorrow' }))
-            ]
-        };
-    }
-
-    /**
-     * Calculate completion trend
-     */
-    calculateCompletionTrend(tasks, days = 30) {
-        const trend = [];
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-        for (let i = days - 1; i >= 0; i--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
-            const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-
-            // Tasks completed on this date
-            const completed = tasks.filter(t => 
-                t.completed && 
-                t.completedAt && 
-                t.completedAt.startsWith(dateStr)
-            ).length;
-
-            // Tasks created on this date
-            const created = tasks.filter(t => 
-                t.createdAt.startsWith(dateStr)
-            ).length;
-
-            trend.push({
-                date: dateStr,
-                day: dayName,
-                completed,
-                created
-            });
-        }
-
-        return trend;
-    }
-
-    /**
-     * Calculate productivity score (0-100)
-     */
-    calculateProductivityScore(tasks, trend) {
-        let score = 50; // Base score
-
-        // Completion rate factor (0-25 points)
-        const completionRate = tasks.length > 0 
-            ? (tasks.filter(t => t.completed).length / tasks.length) * 25 
-            : 0;
-        score += completionRate;
-
-        // Consistency factor (0-15 points)
-        const activeDays = trend.filter(d => d.completed > 0).length;
-        const consistencyScore = (activeDays / trend.length) * 15;
-        score += consistencyScore;
-
-        // Recent activity factor (0-10 points)
-        const recentCompleted = trend.slice(-7).reduce((sum, d) => sum + d.completed, 0);
-        const recentScore = Math.min(10, recentCompleted / 2);
-        score += recentScore;
-
-        return Math.round(Math.min(100, Math.max(0, score)));
-    }
-
-    /**
-     * Find best productivity day
-     */
-    findBestProductivityDay(trend) {
-        const dayTotals = {};
+            !t.completed && t.dueDate && new Date(t.dueDate) < new Date()
+        ).length;
         
-        trend.forEach(d => {
-            if (!dayTotals[d.day]) {
-                dayTotals[d.day] = { total: 0, count: 0 };
-            }
-            dayTotals[d.day].total += d.completed;
-            dayTotals[d.day].count++;
-        });
-
-        let bestDay = null;
-        let bestAvg = 0;
-
-        Object.entries(dayTotals).forEach(([day, data]) => {
-            const avg = data.total / data.count;
-            if (avg > bestAvg) {
-                bestAvg = avg;
-                bestDay = { day, avg: Math.round(avg * 10) / 10 };
-            }
-        });
-
-        return bestDay;
+        return {
+            total,
+            completed,
+            active,
+            overdue,
+            completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+            efficiency: this._calculateEfficiency(tasks)
+        };
     }
 
     /**
-     * Calculate average tasks per day
+     * Calculate efficiency score
+     * @private
      */
-    calculateAverageTasksPerDay(tasks) {
+    _calculateEfficiency(tasks) {
         if (tasks.length === 0) return 0;
-
-        const dates = tasks.map(t => new Date(t.createdAt).toDateString());
-        const uniqueDates = new Set(dates);
         
-        return Math.round((tasks.length / uniqueDates.size) * 10) / 10;
-    }
-
-    /**
-     * Calculate streak
-     */
-    calculateStreak(tasks, type = 'current') {
-        const completedDates = tasks
-            .filter(t => t.completed && t.completedAt)
-            .map(t => new Date(t.completedAt).toDateString());
+        let score = 0;
+        let factors = 0;
         
-        const uniqueDates = [...new Set(completedDates)].sort((a, b) => 
-            new Date(a) - new Date(b)
-        );
-
-        if (uniqueDates.length === 0) return 0;
-
-        if (type === 'longest') {
-            return this.findLongestStreak(uniqueDates);
-        }
-
-        return this.findCurrentStreak(uniqueDates);
-    }
-
-    /**
-     * Find current streak
-     */
-    findCurrentStreak(dates) {
-        const today = new Date().toDateString();
-        const yesterday = new Date(Date.now() - 86400000).toDateString();
+        // Completion rate factor
+        const completed = tasks.filter(t => t.completed).length;
+        const completionRate = completed / tasks.length;
+        score += completionRate * 40;
+        factors++;
         
-        // Check if streak is active (completed today or yesterday)
-        if (!dates.includes(today) && !dates.includes(yesterday)) {
-            return 0;
-        }
-
-        let streak = 0;
-        let currentDate = new Date();
-
-        // Count backwards from today
-        while (true) {
-            const dateStr = currentDate.toDateString();
-            if (dates.includes(dateStr)) {
-                streak++;
-                currentDate.setDate(currentDate.getDate() - 1);
-            } else if (currentDate.toDateString() === new Date().toDateString()) {
-                // Today not completed yet, but streak continues if yesterday was
-                currentDate.setDate(currentDate.getDate() - 1);
-            } else {
-                break;
-            }
-        }
-
-        return streak;
+        // On-time completion factor
+        const onTime = tasks.filter(t => {
+            if (!t.completed || !t.completedAt) return false;
+            if (!t.dueDate) return true;
+            return new Date(t.completedAt) <= new Date(t.dueDate);
+        }).length;
+        const onTimeRate = completed > 0 ? onTime / completed : 0;
+        score += onTimeRate * 40;
+        factors++;
+        
+        // Active task ratio factor
+        const activeRatio = (tasks.length - completed) / tasks.length;
+        score += (1 - activeRatio) * 20;
+        factors++;
+        
+        return Math.round(score);
     }
 
     /**
-     * Find longest streak
+     * Calculate completion statistics
+     * @private
      */
-    findLongestStreak(dates) {
-        if (dates.length === 0) return 0;
-
-        let longest = 1;
-        let current = 1;
-
-        for (let i = 1; i < dates.length; i++) {
-            const prevDate = new Date(dates[i - 1]);
-            const currDate = new Date(dates[i]);
-            const diffDays = Math.round((currDate - prevDate) / 86400000);
-
-            if (diffDays <= 2) { // Allow 1 day gap
-                current++;
-                longest = Math.max(longest, current);
-            } else {
-                current = 1;
-            }
-        }
-
-        return longest;
-    }
-
-    /**
-     * Get days overdue
-     */
-    getDaysOverdue(dueDate) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const due = new Date(dueDate);
-        const diff = today - due;
-        return Math.ceil(diff / 86400000);
-    }
-
-    /**
-     * Get weekly summary
-     */
-    getWeeklySummary() {
-        const tasks = this.stateManager.getAllTasks();
-        const now = new Date();
-        const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-
-        const thisWeek = tasks.filter(t => 
-            new Date(t.createdAt) >= weekAgo
-        );
-
-        const completedThisWeek = thisWeek.filter(t => 
-            t.completed && 
-            t.completedAt && 
-            new Date(t.completedAt) >= weekAgo
-        );
-
+    _calculateCompletion(tasks, now) {
+        const completedTasks = tasks.filter(t => t.completed);
+        
+        // Today's completions
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const completedToday = completedTasks.filter(t => {
+            if (!t.completedAt) return false;
+            return new Date(t.completedAt) >= today;
+        }).length;
+        
+        // This week's completions
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const completedThisWeek = completedTasks.filter(t => {
+            if (!t.completedAt) return false;
+            return new Date(t.completedAt) >= weekAgo;
+        }).length;
+        
+        // This month's completions
+        const monthAgo = new Date(now);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        const completedThisMonth = completedTasks.filter(t => {
+            if (!t.completedAt) return false;
+            return new Date(t.completedAt) >= monthAgo;
+        }).length;
+        
+        // Average completion time
+        const avgCompletionTime = this._calculateAverageCompletionTime(completedTasks);
+        
         return {
-            created: thisWeek.length,
-            completed: completedThisWeek.length,
-            completionRate: thisWeek.length > 0 
-                ? Math.round((completedThisWeek.length / thisWeek.length) * 100) 
-                : 0
+            today: completedToday,
+            thisWeek: completedThisWeek,
+            thisMonth: completedThisMonth,
+            averageCompletionTime: avgCompletionTime,
+            dailyAverage: Math.round(completedThisWeek / 7 * 10) / 10
         };
     }
 
     /**
-     * Get monthly summary
+     * Calculate average completion time
+     * @private
      */
-    getMonthlySummary() {
-        const tasks = this.stateManager.getAllTasks();
-        const now = new Date();
-        const monthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-
-        const thisMonth = tasks.filter(t => 
-            new Date(t.createdAt) >= monthAgo
-        );
-
-        const completedThisMonth = thisMonth.filter(t => 
-            t.completed && 
-            t.completedAt && 
-            new Date(t.completedAt) >= monthAgo
-        );
-
-        return {
-            created: thisMonth.length,
-            completed: completedThisMonth.length,
-            completionRate: thisMonth.length > 0 
-                ? Math.round((completedThisMonth.length / thisMonth.length) * 100) 
-                : 0
-        };
-    }
-}
-
-/**
- * Chart Renderer - Creates visual charts
- */
-export class ChartRenderer {
-    constructor() {
-        this.colors = {
-            primary: '#6366f1',
-            success: '#22c55e',
-            warning: '#f59e0b',
-            danger: '#ef4444',
-            info: '#3b82f6',
-            purple: '#8b5cf6',
-            pink: '#ec4899'
-        };
-    }
-
-    /**
-     * Render a bar chart
-     */
-    renderBarChart(container, data, options = {}) {
-        const {
-            width = 400,
-            height = 200,
-            barColor = this.colors.primary,
-            showLabels = true,
-            showValues = true
-        } = options;
-
-        const maxValue = Math.max(...data.map(d => d.value));
-        const barWidth = (width - 40) / data.length - 10;
-        const chartHeight = height - 40;
-
-        let svg = `<svg width="${width}" height="${height}" class="bar-chart">`;
+    _calculateAverageCompletionTime(completedTasks) {
+        const tasksWithTimes = completedTasks.filter(t => t.createdAt && t.completedAt);
         
-        // Bars
-        data.forEach((d, i) => {
-            const x = 40 + i * (barWidth + 10);
-            const barHeight = maxValue > 0 ? (d.value / maxValue) * chartHeight : 0;
-            const y = height - 20 - barHeight;
-
-            svg += `
-                <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" 
-                      fill="${barColor}" rx="4" class="chart-bar">
-                    <title>${d.label}: ${d.value}</title>
-                </rect>
-            `;
-
-            if (showLabels) {
-                svg += `
-                    <text x="${x + barWidth/2}" y="${height - 5}" 
-                          text-anchor="middle" font-size="10" fill="var(--text-secondary)">
-                        ${d.label}
-                    </text>
-                `;
-            }
-
-            if (showValues && d.value > 0) {
-                svg += `
-                    <text x="${x + barWidth/2}" y="${y - 5}" 
-                          text-anchor="middle" font-size="10" fill="var(--text-primary)">
-                        ${d.value}
-                    </text>
-                `;
-            }
-        });
-
-        svg += '</svg>';
-        return svg;
+        if (tasksWithTimes.length === 0) return null;
+        
+        const totalHours = tasksWithTimes.reduce((sum, task) => {
+            const created = new Date(task.createdAt);
+            const completed = new Date(task.completedAt);
+            const hours = (completed - created) / (1000 * 60 * 60);
+            return sum + Math.min(hours, 168); // Cap at 1 week
+        }, 0);
+        
+        const avgHours = totalHours / tasksWithTimes.length;
+        
+        if (avgHours < 1) {
+            return { value: Math.round(avgHours * 60), unit: 'minutes' };
+        } else if (avgHours < 24) {
+            return { value: Math.round(avgHours), unit: 'hours' };
+        } else {
+            return { value: Math.round(avgHours / 24), unit: 'days' };
+        }
     }
 
     /**
-     * Render a line chart
+     * Calculate productivity trends
+     * @private
      */
-    renderLineChart(container, data, options = {}) {
-        const {
-            width = 400,
-            height = 200,
-            lineColor = this.colors.primary,
-            fillColor = 'rgba(99, 102, 241, 0.1)',
-            showPoints = true
-        } = options;
-
-        const maxValue = Math.max(...data.map(d => d.value), 1);
-        const chartWidth = width - 40;
-        const chartHeight = height - 40;
-        const stepX = chartWidth / (data.length - 1 || 1);
-
-        // Generate path
-        let path = '';
-        let fillPath = '';
+    _calculateTrends(tasks, now) {
+        const days = 14;
+        const trend = [];
         
-        data.forEach((d, i) => {
-            const x = 40 + i * stepX;
-            const y = height - 20 - (d.value / maxValue) * chartHeight;
+        for (let i = days - 1; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const dayEnd = new Date(dayStart);
+            dayEnd.setDate(dayEnd.getDate() + 1);
             
-            if (i === 0) {
-                path += `M ${x} ${y}`;
-                fillPath += `M ${x} ${height - 20} L ${x} ${y}`;
-            } else {
-                path += ` L ${x} ${y}`;
-                fillPath += ` L ${x} ${y}`;
-            }
-        });
-
-        fillPath += ` L ${40 + (data.length - 1) * stepX} ${height - 20} Z`;
-
-        let svg = `<svg width="${width}" height="${height}" class="line-chart">`;
-        
-        // Fill area
-        svg += `<path d="${fillPath}" fill="${fillColor}" />`;
-        
-        // Line
-        svg += `<path d="${path}" stroke="${lineColor}" stroke-width="2" fill="none" />`;
-
-        // Points
-        if (showPoints) {
-            data.forEach((d, i) => {
-                const x = 40 + i * stepX;
-                const y = height - 20 - (d.value / maxValue) * chartHeight;
-                svg += `<circle cx="${x}" cy="${y}" r="4" fill="${lineColor}" />`;
+            const completed = tasks.filter(t => {
+                if (!t.completedAt) return false;
+                const completedDate = new Date(t.completedAt);
+                return completedDate >= dayStart && completedDate < dayEnd;
+            }).length;
+            
+            trend.push({
+                date: dayStart.toISOString().split('T')[0],
+                day: dayStart.toLocaleDateString('en-US', { weekday: 'short' }),
+                completed
             });
         }
-
-        svg += '</svg>';
-        return svg;
-    }
-
-    /**
-     * Render a donut chart
-     */
-    renderDonutChart(data, options = {}) {
-        const {
-            size = 200,
-            strokeWidth = 20
-        } = options;
-
-        const radius = (size - strokeWidth) / 2;
-        const circumference = 2 * Math.PI * radius;
-        const total = data.reduce((sum, d) => sum + d.value, 0);
-
-        let svg = `<svg width="${size}" height="${size}" class="donut-chart" viewBox="0 0 ${size} ${size}">`;
         
-        // Background circle
-        svg += `<circle cx="${size/2}" cy="${size/2}" r="${radius}" 
-                       fill="none" stroke="var(--bg-tertiary)" stroke-width="${strokeWidth}" />`;
+        // Calculate trend direction
+        const firstHalf = trend.slice(0, 7).reduce((s, d) => s + d.completed, 0);
+        const secondHalf = trend.slice(7).reduce((s, d) => s + d.completed, 0);
+        const trendDirection = secondHalf > firstHalf ? 'up' : (secondHalf < firstHalf ? 'down' : 'stable');
+        
+        return {
+            daily: trend,
+            direction: trendDirection,
+            changePercent: firstHalf > 0 ? Math.round(((secondHalf - firstHalf) / firstHalf) * 100) : 0
+        };
+    }
 
-        // Data segments
-        let offset = 0;
-        data.forEach((d, i) => {
-            const segmentLength = (d.value / total) * circumference;
-            const dashArray = `${segmentLength} ${circumference - segmentLength}`;
-            
-            svg += `
-                <circle cx="${size/2}" cy="${size/2}" r="${radius}" 
-                        fill="none" stroke="${d.color}" stroke-width="${strokeWidth}"
-                        stroke-dasharray="${dashArray}" stroke-dashoffset="${-offset}"
-                        transform="rotate(-90 ${size/2} ${size/2})">
-                    <title>${d.label}: ${d.value} (${Math.round(d.value/total*100)}%)</title>
-                </circle>
-            `;
-            
-            offset += segmentLength;
+    /**
+     * Calculate priority distribution
+     * @private
+     */
+    _calculatePriorityDistribution(tasks) {
+        const active = tasks.filter(t => !t.completed);
+        
+        return {
+            high: {
+                count: active.filter(t => t.priority === 'high').length,
+                percentage: active.length > 0 ? Math.round((active.filter(t => t.priority === 'high').length / active.length) * 100) : 0
+            },
+            medium: {
+                count: active.filter(t => t.priority === 'medium').length,
+                percentage: active.length > 0 ? Math.round((active.filter(t => t.priority === 'medium').length / active.length) * 100) : 0
+            },
+            low: {
+                count: active.filter(t => t.priority === 'low').length,
+                percentage: active.length > 0 ? Math.round((active.filter(t => t.priority === 'low').length / active.length) * 100) : 0
+            }
+        };
+    }
+
+    /**
+     * Calculate time-based analysis
+     * @private
+     */
+    _calculateTimeAnalysis(tasks, now) {
+        // Hourly completion distribution
+        const hourlyDistribution = new Array(24).fill(0);
+        const dailyDistribution = new Array(7).fill(0);
+        
+        tasks.filter(t => t.completed && t.completedAt).forEach(task => {
+            const completed = new Date(task.completedAt);
+            hourlyDistribution[completed.getHours()]++;
+            dailyDistribution[completed.getDay()]++;
         });
-
-        // Center text
-        svg += `
-            <text x="${size/2}" y="${size/2 - 10}" text-anchor="middle" 
-                  font-size="24" font-weight="bold" fill="var(--text-primary)">
-                ${total}
-            </text>
-            <text x="${size/2}" y="${size/2 + 15}" text-anchor="middle" 
-                  font-size="12" fill="var(--text-secondary)">
-                Total
-            </text>
-        `;
-
-        svg += '</svg>';
-        return svg;
+        
+        // Find peak hours
+        const peakHour = hourlyDistribution.reduce((max, val, idx) => 
+            val > max.val ? { val, idx } : max, { val: 0, idx: 0 }
+        );
+        
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const peakDay = dailyDistribution.reduce((max, val, idx) => 
+            val > max.val ? { val, idx } : max, { val: 0, idx: 0 }
+        );
+        
+        return {
+            hourlyDistribution,
+            dailyDistribution,
+            peakHour: { hour: peakHour.idx, count: peakHour.val },
+            peakDay: { day: dayNames[peakDay.idx], count: peakDay.val },
+            morningProductivity: hourlyDistribution.slice(6, 12).reduce((a, b) => a + b, 0),
+            afternoonProductivity: hourlyDistribution.slice(12, 18).reduce((a, b) => a + b, 0),
+            eveningProductivity: hourlyDistribution.slice(18, 24).reduce((a, b) => a + b, 0)
+        };
     }
 
     /**
-     * Render progress bar
+     * Calculate category statistics
+     * @private
      */
-    renderProgressBar(percentage, options = {}) {
-        const {
-            width = 300,
-            height = 8,
-            color = this.colors.primary,
-            showLabel = true
-        } = options;
+    _calculateCategoryStats(tasks) {
+        const categoryCount = new Map();
+        
+        tasks.forEach(task => {
+            if (task.categories && Array.isArray(task.categories)) {
+                task.categories.forEach(cat => {
+                    categoryCount.set(cat, (categoryCount.get(cat) || 0) + 1);
+                });
+            }
+        });
+        
+        return Array.from(categoryCount.entries())
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+    }
 
-        let html = `
-            <div class="progress-bar-container" style="width: ${width}px;">
-                <div class="progress-bar" style="width: ${width}px; height: ${height}px;">
-                    <div class="progress-fill" style="width: ${percentage}%; background: ${color};"></div>
-                </div>
-        `;
+    /**
+     * Generate weekly report
+     * @private
+     */
+    _generateWeeklyReport(tasks, now) {
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        
+        const weekTasks = tasks.filter(t => {
+            const taskDate = new Date(t.createdAt);
+            return taskDate >= weekAgo;
+        });
+        
+        const completed = weekTasks.filter(t => t.completed).length;
+        const created = weekTasks.length;
+        
+        // Best day
+        const dayCounts = new Array(7).fill(0);
+        weekTasks.filter(t => t.completed && t.completedAt).forEach(task => {
+            const day = new Date(task.completedAt).getDay();
+            dayCounts[day]++;
+        });
+        
+        const bestDay = dayCounts.reduce((max, val, idx) => 
+            val > max.val ? { val, idx } : max, { val: 0, idx: 0 }
+        );
+        
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        
+        return {
+            tasksCreated: created,
+            tasksCompleted: completed,
+            completionRate: created > 0 ? Math.round((completed / created) * 100) : 0,
+            bestDay: { day: dayNames[bestDay.idx], count: bestDay.val },
+            averagePerDay: Math.round(created / 7 * 10) / 10
+        };
+    }
 
-        if (showLabel) {
-            html += `<span class="progress-label">${percentage}%</span>`;
+    /**
+     * Generate actionable insights
+     * @private
+     */
+    _generateInsights(tasks, now) {
+        const insights = [];
+        const analytics = this._calculateOverview(tasks);
+        
+        // Overdue tasks insight
+        const overdue = tasks.filter(t => 
+            !t.completed && t.dueDate && new Date(t.dueDate) < now
+        ).length;
+        
+        if (overdue > 3) {
+            insights.push({
+                type: 'warning',
+                title: 'Overdue Tasks',
+                message: `You have ${overdue} overdue tasks. Consider rescheduling or completing them.`,
+                priority: 'high'
+            });
         }
-
-        html += '</div>';
-        return html;
+        
+        // Low completion rate insight
+        if (analytics.completionRate < 50 && tasks.length > 5) {
+            insights.push({
+                type: 'info',
+                title: 'Completion Rate',
+                message: `Your completion rate is ${analytics.completionRate}%. Try breaking tasks into smaller subtasks.`,
+                priority: 'medium'
+            });
+        }
+        
+        // High priority overload
+        const highPriority = tasks.filter(t => !t.completed && t.priority === 'high').length;
+        if (highPriority > 5) {
+            insights.push({
+                type: 'warning',
+                title: 'Priority Balance',
+                message: `You have ${highPriority} high-priority tasks. Consider reprioritizing some to medium.`,
+                priority: 'medium'
+            });
+        }
+        
+        // Productivity pattern insight
+        const timeAnalysis = this._calculateTimeAnalysis(tasks, now);
+        if (timeAnalysis.peakHour.count > 5) {
+            insights.push({
+                type: 'success',
+                title: 'Peak Productivity',
+                message: `You're most productive at ${this._formatHour(timeAnalysis.peakHour.hour)}. Schedule important tasks then!`,
+                priority: 'low'
+            });
+        }
+        
+        // Streak encouragement
+        if (analytics.completed > 0) {
+            insights.push({
+                type: 'success',
+                title: 'Keep It Up!',
+                message: `You've completed ${analytics.completed} tasks. Great progress!`,
+                priority: 'low'
+            });
+        }
+        
+        return insights.sort((a, b) => {
+            const priorityOrder = { high: 0, medium: 1, low: 2 };
+            return priorityOrder[a.priority] - priorityOrder[b.priority];
+        });
     }
 
     /**
-     * Render stats cards
+     * Format hour for display
+     * @private
      */
-    renderStatsCards(stats) {
-        return `
-            <div class="stats-grid">
-                ${this.renderStatCard('Total Tasks', stats.total, '📋', this.colors.primary)}
-                ${this.renderStatCard('Completed', stats.completed, '✅', this.colors.success)}
-                ${this.renderStatCard('Active', stats.active, '⏳', this.colors.warning)}
-                ${this.renderStatCard('Overdue', stats.overdueCount, '⚠️', this.colors.danger)}
-            </div>
-        `;
+    _formatHour(hour) {
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+        return `${displayHour} ${period}`;
     }
 
     /**
-     * Render single stat card
+     * Cache management
+     * @private
      */
-    renderStatCard(label, value, icon, color) {
-        return `
-            <div class="stat-card" style="border-left-color: ${color}">
-                <div class="stat-icon" style="background: ${color}20">${icon}</div>
-                <div class="stat-info">
-                    <span class="stat-value">${value}</span>
-                    <span class="stat-label">${label}</span>
-                </div>
-            </div>
-        `;
+    _getCached(key) {
+        const item = this.cache.get(key);
+        if (!item) return null;
+        
+        if (Date.now() - item.timestamp > this.cacheExpiry) {
+            this.cache.delete(key);
+            return null;
+        }
+        
+        return item.data;
+    }
+
+    _setCache(key, data) {
+        this.cache.set(key, {
+            data,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * Clear cache
+     */
+    clearCache() {
+        this.cache.clear();
     }
 }
 
 /**
- * Analytics Dashboard UI Component
+ * Dashboard UI Renderer
  */
-export class AnalyticsDashboard {
-    constructor(analyticsManager) {
-        this.analyticsManager = analyticsManager;
-        this.chartRenderer = new ChartRenderer();
-        this.container = null;
+class DashboardRenderer {
+    constructor(container) {
+        this.container = container;
+        this.analyticsEngine = null;
     }
 
     /**
      * Initialize dashboard
      */
-    init(containerSelector) {
-        this.container = document.querySelector(containerSelector);
-        if (!this.container) return;
-
-        this.render();
+    async render(analyticsEngine) {
+        this.analyticsEngine = analyticsEngine;
+        const analytics = await analyticsEngine.getAnalytics();
         
-        // Auto-refresh on data change
-        eventBus.on(EVENTS.TASKS_CHANGED, () => this.render());
+        this.container.innerHTML = `
+            <div class="dashboard">
+                ${this._renderOverview(analytics.overview)}
+                ${this._renderCompletionStats(analytics.completion)}
+                ${this._renderTrendChart(analytics.trends)}
+                ${this._renderPriorityDistribution(analytics.priority)}
+                ${this._renderTimeAnalysis(analytics.timeAnalysis)}
+                ${this._renderInsights(analytics.insights)}
+            </div>
+        `;
     }
 
-    /**
-     * Render full dashboard
-     */
-    render() {
-        if (!this.container) return;
-
-        const analytics = this.analyticsManager.getAnalytics();
-        const weeklySummary = this.analyticsManager.getWeeklySummary();
-        const monthlySummary = this.analyticsManager.getMonthlySummary();
-
-        this.container.innerHTML = `
-            <div class="analytics-dashboard">
-                <h2 class="dashboard-title">📊 Analytics Dashboard</h2>
-                
-                ${this.chartRenderer.renderStatsCards(analytics.overview)}
-
-                <div class="analytics-section">
-                    <h3>Productivity Score</h3>
-                    <div class="productivity-score ${this.getScoreClass(analytics.productivity.score)}">
-                        ${this.chartRenderer.renderDonutChart([
-                            { value: analytics.productivity.score, color: this.getColorForScore(analytics.productivity.score) },
-                            { value: 100 - analytics.productivity.score, color: 'var(--bg-tertiary)' }
-                        ], { size: 150, strokeWidth: 15 })}
+    _renderOverview(overview) {
+        return `
+            <div class="dashboard-section overview">
+                <h3>Overview</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value">${overview.total}</span>
+                        <span class="stat-label">Total Tasks</span>
                     </div>
-                    <p class="score-description">${this.getScoreDescription(analytics.productivity.score)}</p>
-                </div>
-
-                <div class="analytics-section">
-                    <h3>Completion Trend (30 Days)</h3>
-                    ${this.chartRenderer.renderLineChart(
-                        analytics.trend.map(d => ({ label: d.day, value: d.completed })),
-                        { lineColor: this.colors.success, fillColor: 'rgba(34, 197, 94, 0.1)' }
-                    )}
-                </div>
-
-                <div class="analytics-section">
-                    <h3>Tasks by Priority</h3>
-                    ${this.chartRenderer.renderBarChart(
-                        [
-                            { label: 'High', value: analytics.priority.high },
-                            { label: 'Medium', value: analytics.priority.medium },
-                            { label: 'Low', value: analytics.priority.low }
-                        ],
-                        { barColor: this.colors.danger }
-                    )}
-                </div>
-
-                <div class="analytics-grid">
-                    <div class="analytics-card">
-                        <h4>🔥 Current Streak</h4>
-                        <p class="big-number">${analytics.productivity.currentStreak} days</p>
+                    <div class="stat-card">
+                        <span class="stat-value">${overview.completed}</span>
+                        <span class="stat-label">Completed</span>
                     </div>
-                    <div class="analytics-card">
-                        <h4>🏆 Longest Streak</h4>
-                        <p class="big-number">${analytics.productivity.longestStreak} days</p>
+                    <div class="stat-card">
+                        <span class="stat-value">${overview.active}</span>
+                        <span class="stat-label">Active</span>
                     </div>
-                    <div class="analytics-card">
-                        <h4>📈 Avg Tasks/Day</h4>
-                        <p class="big-number">${analytics.productivity.avgTasksPerDay}</p>
-                    </div>
-                    <div class="analytics-card">
-                        <h4>⭐ Best Day</h4>
-                        <p class="big-number">${analytics.productivity.bestDay?.day || 'N/A'}</p>
+                    <div class="stat-card ${overview.overdue > 0 ? 'warning' : ''}">
+                        <span class="stat-value">${overview.overdue}</span>
+                        <span class="stat-label">Overdue</span>
                     </div>
                 </div>
-
-                ${analytics.overdue.length > 0 ? `
-                    <div class="analytics-section warning">
-                        <h3>⚠️ Overdue Tasks (${analytics.overdue.length})</h3>
-                        <ul class="overdue-list">
-                            ${analytics.overdue.map(t => `
-                                <li>
-                                    <span>${t.text}</span>
-                                    <span class="overdue-days">${t.daysOverdue}d overdue</span>
-                                </li>
-                            `).join('')}
-                        </ul>
+                <div class="efficiency-meter">
+                    <div class="efficiency-label">Efficiency Score</div>
+                    <div class="efficiency-bar">
+                        <div class="efficiency-fill" style="width: ${overview.efficiency}%"></div>
                     </div>
-                ` : ''}
+                    <span class="efficiency-value">${overview.efficiency}%</span>
+                </div>
+            </div>
+        `;
+    }
 
-                ${analytics.dueSoon.length > 0 ? `
-                    <div class="analytics-section info">
-                        <h3>📅 Due Soon</h3>
-                        <ul class="due-soon-list">
-                            ${analytics.dueSoon.map(t => `
-                                <li>
-                                    <span>${t.text}</span>
-                                    <span class="due-label ${t.dueLabel === 'Today' ? 'urgent' : ''}">${t.dueLabel}</span>
-                                </li>
-                            `).join('')}
-                        </ul>
+    _renderCompletionStats(completion) {
+        return `
+            <div class="dashboard-section completion">
+                <h3>Completion Stats</h3>
+                <div class="completion-grid">
+                    <div class="completion-item">
+                        <span class="completion-value">${completion.today}</span>
+                        <span class="completion-label">Today</span>
                     </div>
+                    <div class="completion-item">
+                        <span class="completion-value">${completion.thisWeek}</span>
+                        <span class="completion-label">This Week</span>
+                    </div>
+                    <div class="completion-item">
+                        <span class="completion-value">${completion.thisMonth}</span>
+                        <span class="completion-label">This Month</span>
+                    </div>
+                </div>
+                ${completion.averageCompletionTime ? `
+                    <p class="avg-completion">
+                        Avg. completion time: ${completion.averageCompletionTime.value} ${completion.averageCompletionTime.unit}
+                    </p>
                 ` : ''}
             </div>
         `;
     }
 
-    getScoreClass(score) {
-        if (score >= 80) return 'excellent';
-        if (score >= 60) return 'good';
-        if (score >= 40) return 'average';
-        return 'needs-improvement';
+    _renderTrendChart(trends) {
+        const maxCompleted = Math.max(...trends.daily.map(d => d.completed), 1);
+        
+        return `
+            <div class="dashboard-section trends">
+                <h3>14-Day Trend ${trends.direction === 'up' ? '📈' : trends.direction === 'down' ? '📉' : '➡️'}</h3>
+                <div class="trend-chart">
+                    ${trends.daily.map(day => `
+                        <div class="trend-bar-container">
+                            <div class="trend-bar" style="height: ${(day.completed / maxCompleted) * 100}%"></div>
+                            <span class="trend-day">${day.day}</span>
+                            <span class="trend-value">${day.completed}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                ${trends.changePercent !== 0 ? `
+                    <p class="trend-summary">
+                        ${trends.changePercent > 0 ? '+' : ''}${trends.changePercent}% vs previous week
+                    </p>
+                ` : ''}
+            </div>
+        `;
     }
 
-    getColorForScore(score) {
-        if (score >= 80) return this.chartRenderer.colors.success;
-        if (score >= 60) return this.chartRenderer.colors.warning;
-        return this.chartRenderer.colors.danger;
+    _renderPriorityDistribution(priority) {
+        return `
+            <div class="dashboard-section priority">
+                <h3>Priority Distribution</h3>
+                <div class="priority-bars">
+                    <div class="priority-row">
+                        <span class="priority-name high">High</span>
+                        <div class="priority-bar-bg">
+                            <div class="priority-bar high" style="width: ${priority.high.percentage}%"></div>
+                        </div>
+                        <span class="priority-count">${priority.high.count}</span>
+                    </div>
+                    <div class="priority-row">
+                        <span class="priority-name medium">Medium</span>
+                        <div class="priority-bar-bg">
+                            <div class="priority-bar medium" style="width: ${priority.medium.percentage}%"></div>
+                        </div>
+                        <span class="priority-count">${priority.medium.count}</span>
+                    </div>
+                    <div class="priority-row">
+                        <span class="priority-name low">Low</span>
+                        <div class="priority-bar-bg">
+                            <div class="priority-bar low" style="width: ${priority.low.percentage}%"></div>
+                        </div>
+                        <span class="priority-count">${priority.low.count}</span>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
-    getScoreDescription(score) {
-        if (score >= 80) return 'Excellent! You\'re highly productive!';
-        if (score >= 60) return 'Good job! Keep it up!';
-        if (score >= 40) return 'Average. Room for improvement.';
-        return 'Let\'s work on your productivity!';
+    _renderTimeAnalysis(time) {
+        const maxHour = Math.max(...time.hourlyDistribution, 1);
+        
+        return `
+            <div class="dashboard-section time-analysis">
+                <h3>Productivity Patterns</h3>
+                <div class="hourly-chart">
+                    ${time.hourlyDistribution.map((count, hour) => `
+                        <div class="hour-bar-container" title="${hour}:00 - ${count} tasks">
+                            <div class="hour-bar" style="height: ${(count / maxHour) * 100}%"></div>
+                            ${hour % 3 === 0 ? `<span class="hour-label">${hour}</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="peak-info">
+                    <span>🏆 Peak: ${time.peakDay.day} at ${this._formatHour(time.peakHour.hour)}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    _renderInsights(insights) {
+        if (insights.length === 0) return '';
+        
+        const icons = {
+            warning: '⚠️',
+            info: 'ℹ️',
+            success: '✅'
+        };
+        
+        return `
+            <div class="dashboard-section insights">
+                <h3>Insights</h3>
+                <div class="insights-list">
+                    ${insights.map(insight => `
+                        <div class="insight-card ${insight.type}">
+                            <span class="insight-icon">${icons[insight.type]}</span>
+                            <div class="insight-content">
+                                <strong>${insight.title}</strong>
+                                <p>${insight.message}</p>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    _formatHour(hour) {
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+        return `${displayHour}:${period}`;
     }
 }
+
+export { AnalyticsEngine, DashboardRenderer };

@@ -108,6 +108,9 @@
                     <button class="btn-clear" id="clearCompleted" title="Clear completed tasks">
                         Clear Completed
                     </button>
+                    <button class="btn-dashboard" id="openDashboard" title="View dashboard">
+                        📊 Dashboard
+                    </button>
                 </div>
             </section>
 
@@ -258,9 +261,22 @@
         </div>
     </div>
 
+    <!-- Dashboard Modal -->
+    <div class="modal modal-large" id="dashboardModal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📊 Productivity Dashboard</h3>
+                <button class="modal-close" id="dashboardClose" aria-label="Close dashboard">&times;</button>
+            </div>
+            <div id="dashboardContainer" class="dashboard-container"></div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
-    <script type="module" src="js/app.js"></script>
+    <!-- TypeScript App Entry Point -->
+    <script type="module" src="src/main.ts"></script>
 </body>
 </html>

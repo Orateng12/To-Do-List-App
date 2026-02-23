@@ -99,14 +99,14 @@ export class CommandBus {
       
       // Execute handler
       const handlerResult = await handler(command) as Result<T>;
-      
+
       // Log successful command
       if (handlerResult.success) {
         console.log(`[CommandBus] Executed: ${command.type}`, command.payload);
       } else {
-        console.error(`[CommandBus] Failed: ${command.type}`, handlerResult.error);
+        console.error(`[CommandBus] Failed: ${command.type}`, (handlerResult as { error: Error }).error);
       }
-      
+
       return handlerResult;
     } catch (error) {
       console.error(`[CommandBus] Error executing ${command.type}:`, error);
@@ -231,12 +231,12 @@ export function retryMiddleware(maxRetries = 3, delayMs = 100) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const result = await next();
-        
+
         if (result.success) {
           return result;
         }
 
-        lastError = result.error as Error;
+        lastError = (result as { error: Error }).error;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
       }

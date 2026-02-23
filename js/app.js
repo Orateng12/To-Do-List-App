@@ -31,6 +31,10 @@ import { SubtasksManager } from './features/subtasks.js';
 import { RecurringTasksManager } from './features/recurring-tasks.js';
 import { NotificationsManager } from './features/notifications.js';
 import { StreaksManager } from './features/streaks.js';
+import { SwipeActionsManager } from './features/swipe-actions.js';
+import { DragDropManager } from './features/drag-drop.js';
+import { NaturalLanguageParser } from './features/natural-language-parser.js';
+import { AnalyticsEngine, DashboardRenderer } from './features/analytics.js';
 
 // ============================================
 // CONFIGURATION
@@ -618,6 +622,36 @@ function initEventListeners() {
 
         ui.render(await taskRepository.getAll());
     });
+    
+    // Open Dashboard
+    document.getElementById('openDashboard')?.addEventListener('click', async () => {
+        const dashboardModal = document.getElementById('dashboardModal');
+        const dashboardContainer = document.getElementById('dashboardContainer');
+        
+        if (dashboardModal && dashboardContainer) {
+            dashboardModal.classList.add('visible');
+            
+            // Render dashboard with fresh data
+            const analyticsEngine = new AnalyticsEngine(taskRepository);
+            const dashboardRenderer = new DashboardRenderer(dashboardContainer);
+            await dashboardRenderer.render(analyticsEngine);
+        }
+    });
+    
+    // Close Dashboard
+    document.getElementById('dashboardClose')?.addEventListener('click', () => {
+        const dashboardModal = document.getElementById('dashboardModal');
+        if (dashboardModal) {
+            dashboardModal.classList.remove('visible');
+        }
+    });
+    
+    // Close dashboard on overlay click
+    document.getElementById('dashboardModal')?.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal-overlay')) {
+            e.target.parentElement.classList.remove('visible');
+        }
+    });
 
     // Mobile sidebar
     els.menuToggle?.addEventListener('click', openSidebar);
@@ -860,6 +894,99 @@ async function updateStreakWidget(streaksManager) {
 }
 
 // ============================================
+// SWIPE ACTIONS HANDLERS
+// ============================================
+function initSwipeHandlers(swipeActionsManager) {
+    const container = document.getElementById('tasksContainer');
+    if (container) {
+        swipeActionsManager.init(container);
+    }
+}
+
+// ============================================
+// DRAG & DROP HANDLERS
+// ============================================
+function initDragDropHandlers(dragDropManager) {
+    const container = document.getElementById('tasksContainer');
+    if (container) {
+        dragDropManager.init(container);
+    }
+}
+
+// ============================================
+// NATURAL LANGUAGE HANDLERS
+// ============================================
+function initNaturalLanguageHandlers(naturalLanguageParser) {
+    const taskInput = document.getElementById('taskInput');
+    const taskForm = document.getElementById('taskForm');
+    const prioritySelect = document.getElementById('prioritySelect');
+    const dueDateInput = document.getElementById('dueDateInput');
+    const recurrenceSelect = document.getElementById('recurrenceSelect');
+    
+    if (!taskInput || !taskForm) return;
+    
+    // Parse on input blur
+    taskInput.addEventListener('blur', () => {
+        const result = naturalLanguageParser.parse(taskInput.value);
+        
+        if (result.hasNaturalLanguage && result.confidence > 0.5) {
+            // Update UI with parsed values
+            if (result.priority) {
+                prioritySelect.value = result.priority.value;
+                prioritySelect.classList.add('has-user-selection');
+            }
+            
+            if (result.dueDate) {
+                const dateStr = result.dueDate.toISOString().split('T')[0];
+                dueDateInput.value = dateStr;
+            }
+            
+            if (result.recurrence) {
+                recurrenceSelect.value = result.recurrence.type;
+            }
+            
+            // Update input with cleaned text
+            if (result.cleanedText !== result.originalText) {
+                taskInput.value = result.cleanedText;
+            }
+            
+            // Show parsing feedback
+            if (result.suggestions.length > 0) {
+                result.suggestions.forEach(suggestion => {
+                    ui.showToast(suggestion.message, 'info', { duration: 3000 });
+                });
+            }
+        }
+    });
+    
+    // Also parse on Enter key (before submit)
+    taskInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            const result = naturalLanguageParser.parse(taskInput.value);
+            
+            if (result.hasNaturalLanguage) {
+                // Apply parsed values immediately
+                if (result.priority) {
+                    prioritySelect.value = result.priority.value;
+                    prioritySelect.classList.add('has-user-selection');
+                }
+                
+                if (result.dueDate) {
+                    const dateStr = result.dueDate.toISOString().split('T')[0];
+                    dueDateInput.value = dateStr;
+                }
+                
+                if (result.recurrence) {
+                    recurrenceSelect.value = result.recurrence.type;
+                }
+                
+                taskInput.value = result.cleanedText;
+            }
+        }
+    });
+}
+
+// ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
 async function registerServiceWorker() {
@@ -905,18 +1032,22 @@ async function init() {
 
     // Initialize UI with enhanced components
     ui.initElements();
-    ui.bindPriorityFeedback(); // Issue 6 Fix: Priority selection feedback
+    ui.bindPriorityFeedback();
     
     // Initialize feature managers
     const subtasksManager = new SubtasksManager(taskRepository);
     const recurringTasksManager = new RecurringTasksManager(taskRepository);
     const notificationsManager = new NotificationsManager(taskRepository);
     const streaksManager = new StreaksManager(taskRepository);
+    const swipeActionsManager = new SwipeActionsManager(taskRepository, ui);
+    const dragDropManager = new DragDropManager(taskRepository, ui);
+    const naturalLanguageParser = new NaturalLanguageParser();
+    const analyticsEngine = new AnalyticsEngine(taskRepository);
     
     // Initialize streaks
     await streaksManager.init();
     
-    // Initialize inline edit manager (Issue 7 Fix)
+    // Initialize inline edit manager
     const inlineEditManager = new InlineEditManager(taskRepository, ui);
     ui.setInlineEditManager(inlineEditManager);
     
@@ -937,19 +1068,25 @@ async function init() {
     // Initialize event listeners
     initEventListeners();
     
-    // Initialize subtask event handlers
+    // Initialize feature handlers
     initSubtaskHandlers(subtasksManager);
-    
-    // Initialize recurrence event handlers
     initRecurrenceHandlers(recurringTasksManager);
-    
-    // Initialize notifications
     initNotificationHandlers(notificationsManager);
+    initSwipeHandlers(swipeActionsManager);
+    initDragDropHandlers(dragDropManager);
+    initNaturalLanguageHandlers(naturalLanguageParser);
     
     // Initialize streak display
     updateStreakWidget(streaksManager);
     
-    // Bind empty state actions (Issue 5 Fix)
+    // Initialize dashboard if container exists
+    const dashboardContainer = document.getElementById('dashboardContainer');
+    if (dashboardContainer) {
+        const dashboardRenderer = new DashboardRenderer(dashboardContainer);
+        dashboardRenderer.render(analyticsEngine);
+    }
+    
+    // Bind empty state actions
     ui.emptyStateManager.bindActions({
         addAction: () => {
             ui.elements.taskInput?.focus();
@@ -981,7 +1118,11 @@ async function init() {
         subtasksManager,
         recurringTasksManager,
         notificationsManager,
-        streaksManager
+        streaksManager,
+        swipeActionsManager,
+        dragDropManager,
+        naturalLanguageParser,
+        analyticsEngine
     };
 }
 

@@ -4,7 +4,7 @@
  * Comprehensive productivity analytics with D3.js-style data processing
  */
 
-import type { Task, Priority, Analytics, ProductivityMetrics, TrendData, DailyTrend, GoalProgress } from '../types';
+import type { Task, Priority, ProductivityMetrics, TrendData, DailyTrend, GoalProgress } from '../types';
 
 export interface AnalyticsData {
   metrics: ProductivityMetrics;
@@ -153,30 +153,30 @@ export class AnalyticsEngine {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
-      
+
       const dayStart = new Date(date.setHours(0, 0, 0, 0));
       const dayEnd = new Date(date.setHours(23, 59, 59, 999));
-      
-      const completed = tasks.filter(t => 
-        t.status === 'completed' && 
+
+      const completed = tasks.filter(t =>
+        t.status === 'completed' &&
         t.completedAt &&
-        new Date(t.completedAt) >= dayStart && 
+        new Date(t.completedAt) >= dayStart &&
         new Date(t.completedAt) <= dayEnd
       ).length;
-      
-      const created = tasks.filter(t => 
-        new Date(t.createdAt) >= dayStart && 
+
+      const created = tasks.filter(t =>
+        new Date(t.createdAt) >= dayStart &&
         new Date(t.createdAt) <= dayEnd
       ).length;
-      
-      const overdue = tasks.filter(t => 
+
+      const overdue = tasks.filter(t =>
         t.status !== 'completed' &&
         t.dueDate &&
         new Date(t.dueDate) < dayStart
       ).length;
-      
+
       daily.push({
-        date: dateStr,
+        date: dateStr!,
         completed,
         created,
         overdue
@@ -214,12 +214,12 @@ export class AnalyticsEngine {
         new Date(t.completedAt) <= weekEnd
       ).length;
       
-      const completionRate = weekTasks.length > 0 
-        ? (completed / weekTasks.length) * 100 
+      const completionRate = weekTasks.length > 0
+        ? (completed / weekTasks.length) * 100
         : 0;
-      
+
       weekly.push({
-        week: weekStart.toISOString().split('T')[0],
+        week: weekStart.toISOString().split('T')[0]!,
         completed,
         completionRate: Math.round(completionRate * 100) / 100
       });
@@ -330,12 +330,13 @@ export class AnalyticsEngine {
     for (let i = 364; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
-      dates[date.toISOString().split('T')[0]] = 0;
+      const dateKey = date.toISOString().split('T')[0]!;
+      dates[dateKey] = 0;
     }
-    
+
     // Count completed tasks per day
     tasks.filter(t => t.status === 'completed' && t.completedAt).forEach(task => {
-      const dateStr = new Date(task.completedAt!).toISOString().split('T')[0];
+      const dateStr = new Date(task.completedAt!).toISOString().split('T')[0]!;
       if (dates[dateStr] !== undefined) {
         dates[dateStr]++;
       }
@@ -454,14 +455,15 @@ export class AnalyticsEngine {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const stats: Record<string, number> = {};
     days.forEach(day => { stats[day] = 0; });
-    
+
     completedTasks.forEach(task => {
       if (task.completedAt) {
-        const day = days[new Date(task.completedAt).getDay()];
+        const dayIndex = new Date(task.completedAt).getDay();
+        const day = days[dayIndex]!;
         stats[day]++;
       }
     });
-    
+
     return stats;
   }
 }

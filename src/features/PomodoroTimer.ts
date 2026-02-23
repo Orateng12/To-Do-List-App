@@ -208,7 +208,8 @@ export class PomodoroTimer {
     days.forEach(day => { dailySessions[day] = 0; });
 
     weekSessions.forEach(session => {
-      const day = days[new Date(session.startTime).getDay()];
+      const dayIndex = new Date(session.startTime).getDay();
+      const day = days[dayIndex]!;
       dailySessions[day]++;
     });
 
